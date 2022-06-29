@@ -1,6 +1,4 @@
-
-
-# # code for installing packages
+# code for installing packages
 # r = getOption("repos")
 # r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
 # options(repos = r)
@@ -16,6 +14,7 @@ if (!require(shinyjs)){
 
 library(shiny)
 library(dplyr)
+library(DT)
 library(data.table)
 library(lubridate)
 library(ggplot2)
@@ -28,8 +27,6 @@ library(shinyjs)
 # change working directory
 setwd("/Users/Jonathan/Desktop/ping_pong_testing")
 #setwd("/mnts/shared/consumerdsg/Party_Cats/Users/Jonathan/pp_db")
-
-
 
 
 
@@ -108,6 +105,9 @@ check_conditions <- function(p1, p2, match_data){
 # define a function to update match data if the row is a valid entry based on the rules of the challenge
 update_match_data <- function(p1, p2, p1_score, p2_score, winner, num_games_played, match_data){
     
+    # remove the row we use to ensure data table is read in properly
+    match_data <- match_data[p1_name != 'DELETE']
+    
     # add new row to match data
     match_data <- rbind(match_data, list(date = Sys.Date(), p1_name = p1, p2_name = p2, p1_points = p1_score, p2_points = p2_score,
                                          winner = winner, games_played = num_games_played))
@@ -148,30 +148,38 @@ calculate_points <- function(p1, p2, p1_score, p2_score, winner, num_games_playe
 # define function to return bar chart of standings
 standings_bar_chart <- function(standings){
     
-    # create a ranking order for people in standings - rank by points and alphabetical secondary
-    standings <- standings[order(-points, name)] %>% mutate(rank = 1:n())
-    
-    # order the standings dataframe as a factor on name by points to help with coloring for ease of reading
-    standings$name <- reorder(as.factor(standings$name), standings$rank)
-    
-    # create a color variable
-    standings$color <- rep(c("#00AF66", "#1D4094"), ceiling(length(standings$rank)/2))[1:length(standings$rank)]
-    
-    # create graph
-    ggplot(standings, aes(x=name, y=points)) + geom_col(aes(fill = name)) +
-        geom_text(aes(label=points, y = max(standings$points) + 5), size=5, color = standings$color) +
-        theme_minimal() + coord_flip() +
-        theme(panel.grid.minor = element_blank()) +
-        theme(panel.grid.major = element_blank()) +
-        theme(axis.text.x = element_blank()) +
-        theme(axis.text.y = element_text(size=13)) +
-        xlab("Player") + ylab("Points") +
-        scale_fill_manual(values=standings$color) +
-        theme(legend.position = 'none') +
-        theme(axis.title=element_text(size=14,face="bold")) +
-        scale_x_discrete(limits = rev(levels(standings$name)))
-    
-    
+    # if standings has 0 rows, output blank chart; otherwise, proceed with logic for updating standings graph
+    if (nrow(standings) == 0){
+        
+        # create blank graph
+        ggplot() + geom_bar() + theme_minimal() + xlab("Player") + ylab("Points") + coord_flip()
+        
+    } else{
+        
+        # create a ranking order for people in standings - rank by points and alphabetical secondary
+        standings <- standings[order(-points, name)] %>% mutate(rank = 1:n())
+        
+        # order the standings dataframe as a factor on name by points to help with coloring for ease of reading
+        standings$name <- reorder(as.factor(standings$name), standings$rank)
+        
+        # create a color variable
+        standings$color <- rep(c("#00AF66", "#1D4094"), ceiling(length(standings$rank)/2))[1:length(standings$rank)]
+        
+        # create graph
+        ggplot(standings, aes(x=name, y=points)) + geom_col(aes(fill = name)) +
+            geom_text(aes(label=points, y = max(standings$points) + 5), size=5, color = standings$color) +
+            theme_minimal() + coord_flip() +
+            theme(panel.grid.minor = element_blank()) +
+            theme(panel.grid.major = element_blank()) +
+            theme(axis.text.x = element_blank()) +
+            theme(axis.text.y = element_text(size=13)) +
+            xlab("Player") + ylab("Points") +
+            scale_fill_manual(values=standings$color) +
+            theme(legend.position = 'none') +
+            theme(axis.title=element_text(size=14,face="bold")) +
+            scale_x_discrete(limits = rev(levels(standings$name)))
+        
+    }
     
 }
 
@@ -218,12 +226,12 @@ ui <- fluidPage(
                br(),
                
                fluidRow(
-                   column(2, textInput(inputId = 'player1_name', label = "Player 1 First/Last Name")),
-                   column(2, textInput(inputId = 'player2_name', label = "Player 2 First/Last Name")),
-                   column(2, textInput(inputId = 'player1_score', label = "Player 1 Total Score")),
-                   column(2, textInput(inputId = 'player2_score', label = "Player 2 Total Score")),
-                   column(2, textInput(inputId = 'winner', label = "Winner First/Last Name")),
-                   column(2, textInput(inputId = 'num_games_played', label = "Number of Games Played")),
+                   column(2, textInput(inputId = 'player1_name', label = "Player 1 Full Name")),
+                   column(2, textInput(inputId = 'player2_name', label = "Player 2 Full Name")),
+                   column(2, textInput(inputId = 'player1_score', label = "P1 Total Score")),
+                   column(2, textInput(inputId = 'player2_score', label = "P2 Total Score")),
+                   column(2, textInput(inputId = 'winner', label = "Winner Full Name")),
+                   column(2, textInput(inputId = 'num_games_played', label = "# of Games Played")),
                ),
                
                # submit button
@@ -262,13 +270,13 @@ server <- function(input, output) {
     
     # create reactive list that will have the standings graph, display message, match_data, and standings data
     outputs <- reactiveValues(message = "", standings_chart = standings_bar_chart(fread('standings.csv')),
-                              match_data = fread('matches.csv'), standings = fread('standings.csv'))
+                              match_data = fread('matches.csv') %>% mutate(date = as.Date(date, format = '%m/%d/%y')), standings = fread('standings.csv'))
     
     observeEvent(input$submit_button, {
         
         # load current match data
         match_data <- outputs$match_data
-        match_data$date <- as.Date(match_data$date, format = '%m/%d/%y')
+        #match_data$date <- as.Date(match_data$date, format = '%m/%d/%y')
         
         # load overall standings data
         standings <- outputs$standings
@@ -571,5 +579,3 @@ server <- function(input, output) {
 
 # Run the application
 shinyApp(ui = ui, server = server)
-
-
