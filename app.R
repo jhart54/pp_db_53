@@ -1,8 +1,10 @@
+
+
 # code for installing packages
-# r = getOption("repos")
-# r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
-# options(repos = r)
-# rm(r)
+r = getOption("repos")
+r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
+options(repos = r)
+rm(r)
 
 
 ### load libraries
@@ -10,6 +12,11 @@
 # if shinyjs is not installed, install it
 if (!require(shinyjs)){
     install.packages('shinyjs')
+}
+
+# if shinycssloaders is not installed, install it
+if (!require(shinycssloaders)){
+    install.packages('shinycssloaders')
 }
 
 library(shiny)
@@ -20,13 +27,14 @@ library(lubridate)
 library(ggplot2)
 library(stringr)
 library(shinyjs)
+library(shinycssloaders)
 
 
 
 
 # change working directory
-setwd("/Users/Jonathan/Desktop/ping_pong_testing")
-#setwd("/mnts/shared/consumerdsg/Party_Cats/Users/Jonathan/pp_db")
+#setwd("/Users/Jonathan/Desktop/ping_pong_testing")
+setwd("/mnts/shared/consumerdsg/Party_Cats/Users/Jonathan/pp_db")
 
 
 
@@ -242,7 +250,7 @@ ui <- fluidPage(
                ),
                
                # output message for whether or not the submit was successful
-               textOutput(outputId = 'submit_message'),
+               textOutput(outputId = 'submit_message') %>% withSpinner(color = "#1D4094"),
                
                hr(style = 'border-bottom: 1px solid #D3D3D3'),
                
@@ -361,7 +369,7 @@ server <- function(input, output) {
         } else if ((!(p1 %in% c(match_data$p1_name, match_data$p2_name))) & (!(p2 %in% c(match_data$p1_name, match_data$p2_name)))){
             
             # edit the message that will be displayed
-            outputs$message <- paste0("Error: ", p1, " and ", p2,
+            outputs$message <- paste0("Confirm new players: ", p1, " and ", p2,
                                       " are not recognized in the system. Check the standings to make sure players have not submitted a previous match. If not, click 'confirm new player' to continue if this is their first match. If so, make sure names are spelled the same.")
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
@@ -374,7 +382,7 @@ server <- function(input, output) {
         } else if (!(p1 %in% c(match_data$p1_name, match_data$p2_name))){
             
             # edit the message that will be displayed
-            outputs$message <- paste0("Error: ", p1,
+            outputs$message <- paste0("Confirm new player: ", p1,
                                       " is not recognized in the system. Check the standings to make sure this player has not submitted a previous match. If not, click 'confirm new player' to continue if this is their first match. If so, make sure names are spelled the same.")
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
@@ -387,7 +395,7 @@ server <- function(input, output) {
         } else if (!(p2 %in% c(match_data$p1_name, match_data$p2_name))){
             
             # edit the message that will be displayed
-            outputs$message <- paste0("Error: ", p2,
+            outputs$message <- paste0("Confirm new player: ", p2,
                                       " is not recognized in the system. Check the standings to make sure this player has not submitted a previous match. If not, click 'confirm new player' to continue if this is their first match. If so, make sure names are spelled the same.")
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
@@ -579,3 +587,5 @@ server <- function(input, output) {
 
 # Run the application
 shinyApp(ui = ui, server = server)
+
+
