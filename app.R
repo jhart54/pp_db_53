@@ -1,21 +1,39 @@
 
 
 # code for installing packages
-r = getOption("repos")
-r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
-options(repos = r)
-rm(r)
+# r = getOption("repos")
+# r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
+# options(repos = r)
+# rm(r)
 
 
 ### load libraries
 
-# if shinyjs is not installed, install it
+# if necessary packages are not installed, install them
+if (!require(shiny)){
+    install.packages('shiny')
+}
+if (!require(dplyr)){
+    install.packages('dplyr')
+}
+if (!require(DT)){
+    install.packages('DT')
+}
+if (!require(data.table)){
+    install.packages('data.table')
+}
+if (!require(lubridate)){
+    install.packages('lubridate')
+}
+if (!require(ggplot2)){
+    install.packages('ggplot2')
+}
+if (!require(stringr)){
+    install.packages('stringr')
+}
 if (!require(shinyjs)){
     install.packages('shinyjs')
-}
-
-# if shinycssloaders is not installed, install it
-if (!require(shinycssloaders)){
+}if (!require(shinycssloaders)){
     install.packages('shinycssloaders')
 }
 
