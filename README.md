@@ -1,7 +1,7 @@
 # Background
 Welcome! This is an RShiny dashboard that was built for the Fifth Third Bank Ping Pong League, but could easily be adapted for other uses. The goal of this project was to design a tool where people could compete in ping pong matches and submit results on their own to a platform that would automatically update player standings as new matches come in, as well as to ensure that those matches abided by the rules of the tournament. This dashboard accepts user input and checks it against a variety of conditions highlighted in the dashboard to ensure matches are accurately recorded.
 
-# Files included:
+# Files included
 - app.R - RShiny dashboard (functions, UI, and Server combined into one file) that contains all the code to run the dashboard
 - matches.csv - a record of all ping pong matches submitted
 - standings.csv - a record of current standing for all players who have submitted a match
