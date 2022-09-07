@@ -1,39 +1,21 @@
 
 
 # code for installing packages
-# r = getOption("repos")
-# r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
-# options(repos = r)
-# rm(r)
+r = getOption("repos")
+r["CRAN"] = "https://jfrog.info53.com/artifactory/rproject-remote/"
+options(repos = r)
+rm(r)
 
 
 ### load libraries
 
-# if necessary packages are not installed, install them
-if (!require(shiny)){
-    install.packages('shiny')
-}
-if (!require(dplyr)){
-    install.packages('dplyr')
-}
-if (!require(DT)){
-    install.packages('DT')
-}
-if (!require(data.table)){
-    install.packages('data.table')
-}
-if (!require(lubridate)){
-    install.packages('lubridate')
-}
-if (!require(ggplot2)){
-    install.packages('ggplot2')
-}
-if (!require(stringr)){
-    install.packages('stringr')
-}
+# if shinyjs is not installed, install it
 if (!require(shinyjs)){
     install.packages('shinyjs')
-}if (!require(shinycssloaders)){
+}
+
+# if shinycssloaders is not installed, install it
+if (!require(shinycssloaders)){
     install.packages('shinycssloaders')
 }
 
@@ -128,17 +110,6 @@ check_conditions <- function(p1, p2, match_data){
     
 }
 
-# define a function to update match data if the row is a valid entry based on the rules of the challenge
-update_match_data <- function(p1, p2, p1_score, p2_score, winner, num_games_played, match_data){
-    
-    # remove the row we use to ensure data table is read in properly
-    match_data <- match_data[p1_name != 'DELETE']
-    
-    # add new row to match data
-    match_data <- rbind(match_data, list(date = Sys.Date(), p1_name = p1, p2_name = p2, p1_points = p1_score, p2_points = p2_score,
-                                         winner = winner, games_played = num_games_played))
-    return(match_data)
-}
 
 # define a function to calculate the points of a match
 calculate_points <- function(p1, p2, p1_score, p2_score, winner, num_games_played, current_standings){
@@ -171,8 +142,28 @@ calculate_points <- function(p1, p2, p1_score, p2_score, winner, num_games_playe
     
 }
 
+
+# define a function to update match data if the row is a valid entry based on the rules of the challenge
+update_match_data <- function(p1, p2, p1_score, p2_score, winner, num_games_played, match_data, standings){
+    
+    # remove the row we use to ensure data table is read in properly
+    match_data <- match_data[p1_name != 'DELETE']
+    
+    # calculate the number of points each player got based on their current standings
+    new_points <- calculate_points(p1, p2, p1_score, p2_score, winner, num_games_played, standings)
+    
+    # add new row to match data
+    match_data <- rbind(match_data, list(date = Sys.Date(), p1_name = p1, p2_name = p2, p1_points = p1_score, p2_points = p2_score,
+                                         winner = winner, games_played = num_games_played,
+                                         p1_points_earned = new_points$points[new_points$name == p1],
+                                         p2_points_earned = new_points$points[new_points$name == p2]))
+    return(list("match_data" = match_data, "new_points" = new_points))
+}
+
+
+
 # define function to return bar chart of standings
-standings_bar_chart <- function(standings){
+standings_bar_chart <- function(standings, match_data){
     
     # if standings has 0 rows, output blank chart; otherwise, proceed with logic for updating standings graph
     if (nrow(standings) == 0){
@@ -185,8 +176,30 @@ standings_bar_chart <- function(standings){
         # create a ranking order for people in standings - rank by points and alphabetical secondary
         standings <- standings[order(-points, name)] %>% mutate(rank = 1:n())
         
+        # add player win-loss record
+        
+        # get total number of matches played for each player
+        tot_matches <- rbind(merge(standings, match_data, by.x = 'name', by.y = 'p1_name'),
+                             merge(standings, match_data, by.x = 'name', by.y = 'p2_name'), fill = TRUE)[, .(tot_matches = .N), by = name][order(name)]
+        tot_wins <- match_data[!winner == '', .(tot_wins = .N), by = winner][order(winner)]
+        
+        # get win-loss-total dataframe (outer join wins to total) - replace NA values for wins with 0
+        win_loss <- merge(tot_matches, tot_wins, by.x = 'name', by.y = 'winner', all = TRUE)
+        win_loss[is.na(win_loss)] <- 0
+        win_loss$tot_loss <- win_loss$tot_matches - win_loss$tot_wins
+        
+        # get win-loss record as a string variable
+        win_loss$win_loss <- paste0(win_loss$tot_wins, '-', win_loss$tot_loss)
+        
+        # join win loss variable back to standings data
+        standings <- merge(standings, win_loss, by = 'name')
+        
+        # reorder standings and calculate rank
+        standings <- standings[order(-points, name)] %>% mutate(rank = 1:n())
+        
+        # store old name from standings and create new one with the win-loss record attached
         # order the standings dataframe as a factor on name by points to help with coloring for ease of reading
-        standings$name <- reorder(as.factor(standings$name), standings$rank)
+        standings$name <- reorder(as.factor(str_to_title(str_replace(paste0(standings$name, "\n(", standings$win_loss, ")"), "_", " "))), standings$rank)
         
         # create a color variable
         standings$color <- rep(c("#00AF66", "#1D4094"), ceiling(length(standings$rank)/2))[1:length(standings$rank)]
@@ -211,13 +224,13 @@ standings_bar_chart <- function(standings){
 
 
 # create UI for dashboard
-ui <- fluidPage(
+homepage <- fluidPage(
     
     # for hiding/showing certain outputs
     shinyjs::useShinyjs(),
     
     # Application title
-    h1("Fifth Third Ping Pong League", style = "text-align: center; border-bottom: 1px solid #D3D3D3; padding-bottom: 10px"),
+    h2("Fifth Third Ping Pong League", style = "border-bottom: 1px solid #D3D3D3; padding-bottom: 10px"),
     
     # split up the standings bar chart and the welcome message in a fluid row
     fluidRow(
@@ -286,23 +299,42 @@ ui <- fluidPage(
         
     )
     
+)
+
+historical_matches <- fluidPage(
     
+    # for hiding/showing certain outputs
+    shinyjs::useShinyjs(),
     
+    h2("Historical Matches", style = "border-bottom: 1px solid #D3D3D3; padding-bottom: 10px"),
+    DTOutput(outputId ='historical_match_data')
     
+)
+
+
+
+ui <- navbarPage(title = "5/3 PPL", inverse = TRUE,
+                 tabPanel("Home", homepage),
+                 tabPanel("Historical Matches", historical_matches)
+                 
 )
 
 # create server for dashboard
 server <- function(input, output) {
     
     # create reactive list that will have the standings graph, display message, match_data, and standings data
-    outputs <- reactiveValues(message = "", standings_chart = standings_bar_chart(fread('standings.csv')),
-                              match_data = fread('matches.csv') %>% mutate(date = as.Date(date, format = '%m/%d/%y')), standings = fread('standings.csv'))
+    outputs <- reactiveValues(message = "", standings_chart = standings_bar_chart(fread('standings.csv'), fread('matches.csv')),
+                              match_data = fread('matches.csv') %>% mutate(date = as.Date(date, format = '%m/%d/%Y')), standings = fread('standings.csv'))
     
     observeEvent(input$submit_button, {
         
+        # before we write out new data, we need to make sure we load the current files every time
+        outputs$match_data <- fread('matches.csv') %>% mutate(date = as.Date(date, format = '%m/%d/%Y'))
+        outputs$standings <- fread('standings.csv')
+        
+        
         # load current match data
         match_data <- outputs$match_data
-        #match_data$date <- as.Date(match_data$date, format = '%m/%d/%y')
         
         # load overall standings data
         standings <- outputs$standings
@@ -343,7 +375,7 @@ server <- function(input, output) {
             outputs$message <- "Error: Make sure to fill out all fields."
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             
             # make sure numeric inputs can be accurately converted to numeric
@@ -355,7 +387,7 @@ server <- function(input, output) {
             
             outputs$message <- "Error: Make sure points and number of games played fields are entered as just numbers."
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             
             # check to make sure winner has more points in matchups where one game is played
@@ -365,7 +397,7 @@ server <- function(input, output) {
             Check to make sure scores are entered correctly for both players."
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             
             
@@ -377,7 +409,7 @@ server <- function(input, output) {
             outputs$message <- "Erorr: Winner name is not in p1 or p2 input. Check to make sure names were typed correctly."
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             
             # check to see if any player is recognized as a new player to the system and confirm that that's what the user wants to input
@@ -391,7 +423,7 @@ server <- function(input, output) {
                                       " are not recognized in the system. Check the standings to make sure players have not submitted a previous match. If not, click 'confirm new player' to continue if this is their first match. If so, make sure names are spelled the same.")
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             # show the confirm button to allow them to confirm the submission of a new player
             shinyjs::showElement(id = "confirm_new_player")
@@ -404,7 +436,7 @@ server <- function(input, output) {
                                       " is not recognized in the system. Check the standings to make sure this player has not submitted a previous match. If not, click 'confirm new player' to continue if this is their first match. If so, make sure names are spelled the same.")
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             # show the confirm button to allow them to confirm the submission of a new player
             shinyjs::showElement(id = "confirm_new_player")
@@ -417,7 +449,7 @@ server <- function(input, output) {
                                       " is not recognized in the system. Check the standings to make sure this player has not submitted a previous match. If not, click 'confirm new player' to continue if this is their first match. If so, make sure names are spelled the same.")
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             # show the confirm button to allow them to confirm the submission of a new player
             shinyjs::showElement(id = "confirm_new_player")
@@ -434,10 +466,12 @@ server <- function(input, output) {
             if (valid_results$valid == TRUE){
                 
                 # update match data
-                match_data <- update_match_data(p1, p2, p1_score, p2_score, winner, num_games, match_data)
+                results <- update_match_data(p1, p2, p1_score, p2_score, winner, num_games, match_data, standings)
+                match_data <- results$match_data
+                new_points <- results$new_points
                 
                 # update standings - calculate points for the match and then adjust standings as a result
-                new_points <- calculate_points(p1, p2, p1_score, p2_score, winner, num_games, standings)
+                #new_points <- calculate_points(p1, p2, p1_score, p2_score, winner, num_games, standings)
                 
                 # get all player names from previous standings or new match in order to calculate all total points
                 unique_names <- unique(c(standings$name, new_points$name))
@@ -464,7 +498,7 @@ server <- function(input, output) {
                 outputs$match_data <- match_data
                 
                 # make bar chart as a reactive value that changes based on standings
-                outputs$standings_chart <- standings_bar_chart(standings)
+                outputs$standings_chart <- standings_bar_chart(standings, match_data)
                 
                 
                 # print a successful message
@@ -478,7 +512,7 @@ server <- function(input, output) {
                 outputs$message <- paste0("Error: ", valid_results$condition)
                 
                 # make bar chart as a reactive value that changes based on standings (these won't be updated)
-                outputs$standings_chart <- standings_bar_chart(standings)
+                outputs$standings_chart <- standings_bar_chart(standings, match_data)
                 
             }
             
@@ -493,13 +527,17 @@ server <- function(input, output) {
     # when confirm new player button is pressed, reset it to its original value and execute all the code to input a new match into standings
     observeEvent(input$confirm_new_player, {
         
+        # before we write out new data, we need to make sure we load the current files every time
+        outputs$match_data <- fread('matches.csv') %>% mutate(date = as.Date(date, format = '%m/%d/%Y'))
+        outputs$standings <- fread('standings.csv')
+        
         # hide the confirm new player button once it's submitted
         shinyjs::hide("confirm_new_player")
         
         
         # load current match data
         match_data <- outputs$match_data
-        match_data$date <- as.Date(match_data$date, format = '%m/%d/%y')
+        match_data$date <- as.Date(match_data$date, format = '%m/%d/%Y')
         
         # load overall standings data
         standings <- outputs$standings
@@ -529,10 +567,12 @@ server <- function(input, output) {
         if (valid_results$valid == TRUE){
             
             # update match data
-            match_data <- update_match_data(p1, p2, p1_score, p2_score, winner, num_games, match_data)
+            results <- update_match_data(p1, p2, p1_score, p2_score, winner, num_games, match_data, standings)
+            match_data <- results$match_data
+            new_points <- results$new_points
             
             # update standings - calculate points for the match and then adjust standings as a result
-            new_points <- calculate_points(p1, p2, p1_score, p2_score, winner, num_games, standings)
+            #new_points <- calculate_points(p1, p2, p1_score, p2_score, winner, num_games, standings)
             
             # get all player names from previous standings or new match in order to calculate all total points
             unique_names <- unique(c(standings$name, new_points$name))
@@ -559,7 +599,7 @@ server <- function(input, output) {
             outputs$match_data <- match_data
             
             # make bar chart as a reactive value that changes based on standings
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
             
             # print a successful message
@@ -573,7 +613,7 @@ server <- function(input, output) {
             outputs$message <- paste0("Error: ", valid_results$condition)
             
             # make bar chart as a reactive value that changes based on standings (these won't be updated)
-            outputs$standings_chart <- standings_bar_chart(standings)
+            outputs$standings_chart <- standings_bar_chart(standings, match_data)
             
         }
         
@@ -590,20 +630,125 @@ server <- function(input, output) {
     # table for daily match submissions
     output$daily_submissions <- renderDT({
         
-        datatable(outputs$match_data[date == Sys.Date(), .(P1 = p1_name, P2 = p2_name,
-                                                           `P1 Score` = p1_points, `P2 Score` = p2_points)],
+        datatable(outputs$match_data[date == Sys.Date(), .(P1 = str_to_title(str_replace(p1_name, "_", " ")), 
+                                                           P2 = str_to_title(str_replace(p2_name, "_", " ")),
+                                                           `P1 Score` = p1_points, `P2 Score` = p2_points, 
+                                                           `Games` = games_played)],
                   class = "hover nowrap",
                   filter = "none",
-                  options = list(dom = 't', pageLength = -1, scrollX = T)
+                  options = list(dom = 't', pageLength = -1, scrollX = TRUE)
         )
     })
     
     
+    # table for historical match submissions
+    output$historical_match_data <- renderDT({
+        
+        # order match data
+        data <- outputs$match_data
+        
+        # create a column for the order matches were played in
+        data$n <- 1:nrow(data)
+        data <- data[order(-date, -n)]
+        
+        # output data table
+        datatable(data[, .(`Date` = strftime(date, format = "%m/%d/%Y"),
+                           `Matchup` = paste0(str_to_title(str_replace(p1_name, "_", " ")), " vs. ", str_to_title(str_replace(p2_name, "_", " "))),
+                           `P1 Total Score` = p1_points, `P2 Total Score` = p2_points, 
+                           `Winner` = str_to_title(str_replace(winner, "_", " ")), `Games Played` = games_played,
+                           `P1 Ranking Points Earned` = p1_points_earned,
+                           `P2 Ranking Points Earned` = p2_points_earned)],
+                  class = "hover nowrap",
+                  filter = "top",
+                  options = list(dom = 't', pageLength = -1, scrollX = TRUE,
+                                 columnDefs = list(list(className = 'dt-center', targets = "_all"))))
+        
+    })
     
     
 }
 
 # Run the application
 shinyApp(ui = ui, server = server)
+
+
+
+# # ###########################################################################################
+# # this will recalculate standings based on current match data file in case anyone messes up
+# match_data <- fread('matches.csv')
+# match_data <- match_data %>% na.omit()
+# match_data$date <- as.character(match_data$date)
+# standings <- fread('standings.csv')
+# 
+# 
+# standings <- data.table(name = character(), points = numeric(), rank = numeric())
+# 
+# # # add on vlad/nico match before the nico/wei match
+# # match_data <- rbindlist(
+# #     list(
+# #         match_data[0:53],
+# #         list('2022-08-23', 'vladimir_batchenko', 'nico_ferreghini', 42, 35, 'vladimir_batchenko', 2),
+# #         match_data[54]
+# #     )
+# # )
+# 
+# # make date column date again
+# match_data$date <- as.Date(match_data$date)
+# 
+# # create new match data file
+# match_data2 <- data.table(date = character(), p1_name = character(), p2_name = character(), p1_points = numeric(), p2_points = numeric(),
+#                           winner = character(), games_played = numeric(), p1_points_earned = numeric(), p2_points_earned = numeric())
+# match_data2$date <- as.Date(match_data2$date, format = '%Y-%m-%d')
+# 
+# # loop through old match data and recalculate standings and points for each match
+# for (i in 1:nrow(match_data)){
+# 
+#     p1 <- match_data$p1_name[i]
+#     p2 <- match_data$p2_name[i]
+#     p1_score <- match_data$p1_points[i]
+#     p2_score <- match_data$p2_points[i]
+#     winner <- match_data$winner[i]
+#     num_games <- match_data$games_played[i]
+# 
+#     # update match data for this match
+#     results <- update_match_data(p1, p2, p1_score, p2_score, winner, num_games, match_data2, standings)
+#     match_data2 <- results$match_data
+#     new_points <- results$new_points
+# 
+#     # get all player names from previous standings or new match in order to calculate all total points
+#     unique_names <- unique(c(standings$name, new_points$name))
+#     unique_points <- c()
+#     for (n in unique_names){
+#         name_points <- sum(standings[name==n, points], new_points[name==n, points])
+#         unique_points <- append(unique_points, name_points)
+#     }
+# 
+#     # update standings with new rows
+#     standings <- data.table(name = character(), points = numeric())
+#     for (i in 1:length(unique_names)){
+#         standings <- rbind(standings, list(name = unique_names[i], points = unique_points[i]))
+#     }
+# 
+# 
+# }
+# 
+# # replace the new match_data dates with the old match_data dates
+# match_data2$date <- match_data$date
+# 
+# 
+# # sort standings by rank
+# standings$rank <- frank(-standings$points, ties.method = 'average')
+# standings <- standings %>% arrange(rank)
+# 
+# # overwrite old match data
+# match_data <- match_data2
+# 
+# fwrite(standings, '/mnts/shared/consumerdsg/Party_Cats/Users/Jonathan/pp_db/standings.csv', row.names = FALSE)
+# fwrite(match_data, '/mnts/shared/consumerdsg/Party_Cats/Users/Jonathan/pp_db/matches.csv', row.names = FALSE)
+
+
+
+
+
 
 
